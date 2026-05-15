@@ -1,6 +1,5 @@
 package application;
 import java.sql.*;
-import database.DBConnection;
 
 public class SystemLogDAO {
 	 public static void logAction(String username, String action) {

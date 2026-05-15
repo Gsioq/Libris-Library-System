@@ -14,9 +14,8 @@ import javafx.stage.FileChooser;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
-import javafx.scene.control.Alert;
+
 import java.sql.*;
-import database.DBConnection;
 
 
 // Lobby (Don't know how many "mains" I need to make. I'm just making them until it works)
@@ -73,7 +72,6 @@ public class MainDashboard {
         tabs.getTabs().add(buildSearchTab());
         tabs.getTabs().add(buildDiscussionTab());
         tabs.getTabs().add(buildReviewTab());
-        tabs.getTabs().add(buildPaymentTab());
         tabs.getTabs().add(buildSubscriptionTab());
         tabs.getTabs().add(buildAIAssistantTab());
 
@@ -88,6 +86,7 @@ public class MainDashboard {
         if (AuthService.hasAccess(currentUser, Role.ADMIN)) {
             tabs.getTabs().add(buildReportTab());
             tabs.getTabs().add(buildLoginActivityTab());
+            tabs.getTabs().add(buildManageRolesTab());
         }
 
         // roots 
@@ -754,98 +753,98 @@ public class MainDashboard {
         return tab;
     }
 
-    // Libre me if I did a good job 
-    private Tab buildPaymentTab() {
-        Tab tab = new Tab("Payment");
+// Thank you surfshark for giving me an expensive subscription 
+    private Tab buildSubscriptionTab() {
+        Tab tab = new Tab("⭐ Subscription");
 
+        // 1. Subscription Plan Selection
+        ComboBox<String> planBox = new ComboBox<>();
+        planBox.getItems().addAll("Basic Monthly (Php 40)", "Premium Monthly (Php 60)", "Premium Annual (Php 100)");
+        planBox.setValue("Basic Monthly (Php 40)");
+        planBox.setMaxWidth(Double.MAX_VALUE);
+        planBox.setStyle("-fx-font-size: 13px;");
+
+        TextField priceField = new TextField("40.0"); 
+        styleField(priceField);
+        priceField.setEditable(false); 
+        priceField.setStyle("-fx-background-color: #ecf0f1;"); 
+        
+        planBox.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null) {
+                if (newValue.contains("Basic Monthly")) {
+                    priceField.setText("40.0");
+                } else if (newValue.contains("Premium Monthly")) {
+                    priceField.setText("60.0");
+                } else if (newValue.contains("Annual")) {
+                    priceField.setText("100.0");
+                }
+            }
+        });
+
+        // 2. Payment Method Selection (Imported from the old payment tab)
         ComboBox<String> methodBox = new ComboBox<>();
         methodBox.getItems().addAll("GCash", "PayMaya", "Credit Card", "Bank Transfer");
         methodBox.setValue("GCash");
         methodBox.setMaxWidth(Double.MAX_VALUE);
         methodBox.setStyle("-fx-font-size: 13px;");
 
-        TextField amountField = new TextField();
-        amountField.setPromptText("Amount (PHP)");
-        styleField(amountField);
-
         Label messageLabel = new Label();
         messageLabel.setFont(Font.font("Arial", 12));
 
-        Button payBtn = new Button("Process Payment");
-        styleButton(payBtn, "#2c3e50", "#fff");
-
-        // payment on the move 
-        payBtn.setOnAction(e -> {
-            try {
-                String method = methodBox.getValue();
-                double amount = Double.parseDouble(amountField.getText().trim());
-
-                Payment payment = new Payment(method, amount);
-                payment.processPayment();
-                PaymentDAO.savePayment(currentUser.getUsername(), payment);
-
-                showMessage(messageLabel,
-                    payment.paid
-                        ? "Payment of PHP " + amount + " via " + method + " processed!"
-                        : "Payment failed — amount must be greater than 0.",
-                    payment.paid);
-
-            } catch (NumberFormatException ex) {
-                showMessage(messageLabel, "Please enter a valid amount.", false);
-            }
-        });
-
-        VBox box = new VBox(12,
-                sectionLabel("Make a Payment"),
-                new Label("Payment Method:"), methodBox,
-                amountField, payBtn, messageLabel
-        );
-        box.setPadding(new Insets(24));
-
-        tab.setContent(box);
-        return tab;
-    }
-
-    // Thank you surfshark for giving me an expensive subscription 
-    private Tab buildSubscriptionTab() {
-        Tab tab = new Tab("⭐ Subscription");
-
-        ComboBox<String> planBox = new ComboBox<>();
-        planBox.getItems().addAll("Basic Monthly", "Premium Monthly", "Premium Annual");
-        planBox.setValue("Basic Monthly");
-        planBox.setMaxWidth(Double.MAX_VALUE);
-        planBox.setStyle("-fx-font-size: 13px;");
-
-        TextField priceField = new TextField();
-        priceField.setPromptText("Price (PHP)");
-        styleField(priceField);
-
-        Label messageLabel = new Label();
-        messageLabel.setFont(Font.font("Arial", 12));
-
-        Button activateBtn = new Button("Activate Subscription");
-        styleButton(activateBtn, "#8e44ad", "#fff");
+        Button activateBtn = new Button("Pay & Activate");
+        styleButton(activateBtn, "#27ae60", "#fff");
 
         Button cancelBtn = new Button("Cancel Subscription");
         styleButton(cancelBtn, "#e74c3c", "#fff");
 
-        // Did you pay? If customer paid..Then access to premium 
+        // 3. Combined Action: Try to pay FIRST, then subscribe if it succeeds
         activateBtn.setOnAction(e -> {
             try {
                 String plan  = planBox.getValue();
                 double price = Double.parseDouble(priceField.getText().trim());
+                String method = methodBox.getValue();
 
-                Subscription sub = new Subscription(plan, price);
-                sub.activate();
-                SubscriptionDAO.saveSubscription(currentUser.getUsername(), sub);
-                showMessage(messageLabel, "Subscribed to: " + plan + " (PHP " + price + ")", true);
+                activateBtn.setDisable(true);
+                showMessage(messageLabel, "Contacting " + method + " servers...", true);
+
+                // Run the whole process in the background
+                Task<Void> paymentAndSubTask = new Task<>() {
+                    @Override
+                    protected Void call() throws Exception {
+                        // Step A: Attempt the Payment
+                        Payment payment = new Payment(method, price);
+                        payment.processPayment(); // If this declines (20% chance), it throws an Error and stops right here!
+                        PaymentDAO.savePayment(currentUser.getUsername(), payment);
+
+                        // Step B: Only if payment succeeds, activate the subscription
+                        Subscription sub = new Subscription(plan, price);
+                        sub.activate();
+                        SubscriptionDAO.saveSubscription(currentUser.getUsername(), sub);
+                        
+                        return null;
+                    }
+                };
+
+                // If both steps succeed
+                paymentAndSubTask.setOnSucceeded(ev -> {
+                    showMessage(messageLabel, "Payment successful! Subscribed to: " + plan, true);
+                    activateBtn.setDisable(false);
+                });
+
+                // If the simulated bank throws an error
+                paymentAndSubTask.setOnFailed(ev -> {
+                    String errorMsg = paymentAndSubTask.getException().getMessage();
+                    showMessage(messageLabel, "Payment Failed: " + errorMsg, false);
+                    activateBtn.setDisable(false);
+                });
+
+                new Thread(paymentAndSubTask).start();
 
             } catch (NumberFormatException ex) {
-                showMessage(messageLabel, "Please enter a valid price.", false);
+                showMessage(messageLabel, "Invalid price detected.", false);
             }
         });
 
-        // I feel you on this cancel 
         cancelBtn.setOnAction(e -> {
             try {
                 String plan  = planBox.getValue();
@@ -857,16 +856,18 @@ public class MainDashboard {
                 showMessage(messageLabel, "Subscription cancelled: " + plan, false);
 
             } catch (NumberFormatException ex) {
-                showMessage(messageLabel, "Please enter a valid price.", false);
+                showMessage(messageLabel, "Invalid price detected.", false);
             }
         });
 
         HBox btnRow = new HBox(10, activateBtn, cancelBtn);
 
+        // Build the layout combining both modules
         VBox box = new VBox(12,
-                sectionLabel("Manage Subscription"),
-                new Label("Plan:"), planBox,
-                priceField, btnRow, messageLabel
+                sectionLabel("Subscribe to Premium"),
+                new Label("1. Select Plan:"), planBox, priceField,
+                new Label("2. Payment Method:"), methodBox,
+                btnRow, messageLabel
         );
         box.setPadding(new Insets(24));
 
@@ -964,6 +965,9 @@ public class MainDashboard {
 
         Button postBtn = new Button("Post Discussion");
         styleButton(postBtn, "#3498db", "#fff");
+        
+        Button loadDiscussionsBtn = new Button("Load Discussions");
+        styleButton(loadDiscussionsBtn, "#16a085", "#fff");
 
         Label messageLabel = new Label();
 
@@ -996,12 +1000,17 @@ public class MainDashboard {
 
             refreshDiscussionFeed(feedArea);
         });
+        
+        loadDiscussionsBtn.setOnAction(e -> {
+            refreshDiscussionFeed(feedArea);
+        });
 
         VBox box = new VBox(
                 12,
                 titleField,
                 contentArea,
                 postBtn,
+                loadDiscussionsBtn,
                 messageLabel,
                 new Label("Public Discussions:"),
                 feedArea
@@ -1033,6 +1042,9 @@ public class MainDashboard {
 
         Button postBtn = new Button("Post Review");
         styleButton(postBtn, "#f39c12", "#fff");
+        
+        Button loadReviewsBtn = new Button("Load Reviews");
+        styleButton(loadReviewsBtn, "#3498db", "#fff");
 
         Label messageLabel = new Label();
 
@@ -1062,6 +1074,18 @@ public class MainDashboard {
 
             refreshReviewFeed(displayArea, book);
         });
+        
+        loadReviewsBtn.setOnAction(e -> {
+            String book = bookField.getText().trim();
+
+            if(book.isEmpty()){
+                messageLabel.setText("Enter a book title first.");
+                messageLabel.setTextFill(Color.RED);
+                return;
+            }
+
+            refreshReviewFeed(displayArea, book);
+        });
 
         bookField.setOnAction(e -> {
             refreshReviewFeed(displayArea, bookField.getText().trim());
@@ -1070,6 +1094,7 @@ public class MainDashboard {
         VBox box = new VBox(
                 12,
                 bookField,
+                loadReviewsBtn,   
                 ratingBox,
                 reviewArea,
                 postBtn,
@@ -1194,46 +1219,137 @@ public class MainDashboard {
     private Tab buildModerationTab() {
         Tab tab = new Tab("🛡 Moderation");
 
-        TextField bookIdField = new TextField();
-        bookIdField.setPromptText("Book ID");
-        styleField(bookIdField);
+        TextArea notificationArea = new TextArea();
+        notificationArea.setEditable(false);
+        notificationArea.setPrefHeight(100);
 
-        ComboBox<String> statusBox = new ComboBox<>();
-        statusBox.getItems().addAll("APPROVED", "REJECTED", "PENDING");
-        statusBox.setValue("APPROVED");
-        statusBox.setMaxWidth(Double.MAX_VALUE);
-        statusBox.setStyle("-fx-font-size: 13px;");
+        TextArea contentArea = new TextArea();
+        contentArea.setEditable(false);
+        contentArea.setPrefHeight(300);
 
-        Label messageLabel = new Label();
-        messageLabel.setFont(Font.font("Arial", 12));
+        TextField idField = new TextField();
+        idField.setPromptText("Enter Content ID");
 
-        Button moderateBtn = new Button("Apply Status");
-        styleButton(moderateBtn, "#c0392b", "#fff");
+        ComboBox<String> typeBox = new ComboBox<>();
+        typeBox.getItems().addAll("DISCUSSION", "REVIEW");
+        typeBox.setValue("DISCUSSION");
 
-        // JAVAFX MODERATION ACTION (Connects to ContentService.moderateContent)
-        moderateBtn.setOnAction(e -> {
+        Button loadBtn = new Button("Load Pending Content");
+        styleButton(loadBtn, "#3498db", "#fff");
+
+        Button approveBtn = new Button("Approve");
+        styleButton(approveBtn, "#27ae60", "#fff");
+
+        Button flagBtn = new Button("Flag");
+        styleButton(flagBtn, "#e74c3c", "#fff");
+
+        loadBtn.setOnAction(e -> {
+            String notifications =
+                    ManualModerationDAO.getNotifications();
+
+            String discussions =
+                    ManualModerationDAO.getPendingDiscussions();
+
+            String reviews =
+                    ManualModerationDAO.getPendingReviews();
+
+            notificationArea.setText(notifications);
+
+            contentArea.setText(
+                    "PENDING DISCUSSIONS:\n\n" +
+                    discussions +
+                    "\n\nPENDING REVIEWS:\n\n" +
+                    reviews
+            );
+        });
+
+        approveBtn.setOnAction(e -> {
             try {
-                int    bookId = Integer.parseInt(bookIdField.getText().trim());
-                String status = statusBox.getValue();
+                String[] ids = idField.getText().split(",");
 
-                String result = content.moderateContent(currentUser, bookId, status);
-                boolean success = result.startsWith("Content moderated");
-                showMessage(messageLabel, result, success);
+                for(String idText : ids){
+                    int id = Integer.parseInt(idText.trim());
 
-            } catch (NumberFormatException ex) {
-                showMessage(messageLabel, "Please enter a valid Book ID.", false);
+                    boolean success;
+
+                    if(typeBox.getValue().equals("DISCUSSION")) {
+                        success = ManualModerationDAO.approveDiscussion(id);
+                    } else {
+                        success = ManualModerationDAO.approveReview(id);
+                    }
+
+                    if(!success){
+                        contentArea.setText(
+                            "Invalid ID or content was already moderated."
+                        );
+                        return;
+                    }
+                }
+
+                String discussions = ManualModerationDAO.getPendingDiscussions();
+                String reviews = ManualModerationDAO.getPendingReviews();
+
+                contentArea.setText(
+                    "PENDING DISCUSSIONS:\n\n" +
+                    discussions +
+                    "\n\nPENDING REVIEWS:\n\n" +
+                    reviews
+                );
+
+                idField.clear();
+
+            } catch(Exception ex){
+                contentArea.setText("Please enter valid numeric IDs.");
             }
         });
 
-        VBox box = new VBox(12,
-                sectionLabel("Moderate Content"),
-                bookIdField,
-                new Label("Set Status:"), statusBox,
-                moderateBtn, messageLabel
-        );
-        box.setPadding(new Insets(24));
+        flagBtn.setOnAction(e -> {
+            try {
+                String[] ids = idField.getText().split(",");
 
-        tab.setContent(box);
+                for(String idText : ids){
+                    int id = Integer.parseInt(idText.trim());
+
+                    if(typeBox.getValue().equals("DISCUSSION")) {
+                        ManualModerationDAO.flagDiscussion(id);
+                    } else {
+                        ManualModerationDAO.flagReview(id);
+                    }
+                }
+
+                contentArea.setText("Selected content flagged.");
+
+                String discussions = ManualModerationDAO.getPendingDiscussions();
+                String reviews = ManualModerationDAO.getPendingReviews();
+
+                contentArea.setText(
+                    "PENDING DISCUSSIONS:\n\n" +
+                    discussions +
+                    "\n\nPENDING REVIEWS:\n\n" +
+                    reviews
+                );
+
+            } catch(Exception ex){
+                ex.printStackTrace();
+            }
+        });
+
+        VBox layout = new VBox(
+                10,
+                new Label("Moderator Notifications"),
+                notificationArea,
+                loadBtn,
+                contentArea,
+                typeBox,
+                idField,
+                approveBtn,
+                flagBtn
+        );
+
+        layout.setPadding(new Insets(20));
+
+        tab.setContent(layout);
+
         return tab;
     }
 
@@ -1242,7 +1358,7 @@ public class MainDashboard {
         Tab tab = new Tab("📊 Reports");
 
         TextField usernameField = new TextField();
-        usernameField.setPromptText("Enter username to view report");
+        usernameField.setPromptText("Enter username to ban/ unban");
         styleField(usernameField);
 
         TextArea reportArea = new TextArea();
@@ -1250,32 +1366,131 @@ public class MainDashboard {
         reportArea.setWrapText(true);
         reportArea.setPrefHeight(320);
         reportArea.setStyle("-fx-font-family: monospace; -fx-font-size: 12px;");
+        
+        Button flaggedBtn = new Button("View Flagged Content");
+        styleButton(flaggedBtn, "#e67e22", "#fff");
+        
+        Button banBtn = new Button("Ban User");
+        styleButton(banBtn, "#e74c3c", "#fff");
 
-        Button viewBtn = new Button("View Report");
-        styleButton(viewBtn, "#2c3e50", "#fff");
+        Button unbanBtn = new Button("Unban User");
+        styleButton(unbanBtn, "#27ae60", "#fff");
 
         // reports in action 
-        viewBtn.setOnAction(e -> {
+        banBtn.setOnAction(e -> {
             String username = usernameField.getText().trim();
-            if (username.isEmpty()) {
-                reportArea.setText("Please enter a username.");
+
+            if(username.isEmpty()){
+                reportArea.setText("Enter a username.");
                 return;
             }
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            java.io.PrintStream old = System.out;
-            System.setOut(new java.io.PrintStream(baos));
-            ReportDAO.viewUserActivity(username);
-            System.out.flush();
-            System.setOut(old);
-            String output = baos.toString();
-            reportArea.setText(output.isEmpty() ? "No activity found for: " + username : output);
+
+            boolean success = UserDAO.banUser(username);
+
+            if(success){
+                reportArea.setText(username + " has been banned.");
+            } else {
+                reportArea.setText("User not found.");
+            }
+        });
+        
+        unbanBtn.setOnAction(e -> {
+            String username = usernameField.getText().trim();
+
+            if(username.isEmpty()){
+                reportArea.setText("Enter a username.");
+                return;
+            }
+
+            boolean success = UserDAO.unbanUser(username);
+
+            if(success){
+                reportArea.setText(username + " has been unbanned.");
+            } else {
+                reportArea.setText("User not found.");
+            }
+        });
+        
+        flaggedBtn.setOnAction(e -> {
+            try(Connection conn = DBConnection.connect()) {
+
+                String reviewSql = """
+                    SELECT username, book_title, review_text
+                    FROM reviews
+                    WHERE status='FLAGGED'
+                """;
+
+                String discussionSql = """
+                    SELECT username, title, content
+                    FROM discussions
+                    WHERE status='FLAGGED'
+                """;
+
+                StringBuilder output = new StringBuilder();
+
+                // Flagged reviews
+                PreparedStatement reviewStmt =
+                        conn.prepareStatement(reviewSql);
+
+                ResultSet reviewRs =
+                        reviewStmt.executeQuery();
+
+                output.append("FLAGGED REVIEWS:\n\n");
+
+                while(reviewRs.next()){
+                    output.append("User: ")
+                          .append(reviewRs.getString("username"))
+                          .append("\nBook: ")
+                          .append(reviewRs.getString("book_title"))
+                          .append("\nReview: ")
+                          .append(reviewRs.getString("review_text"))
+                          .append("\n-------------------\n");
+                }
+
+                // Flagged discussions
+                PreparedStatement discussionStmt =
+                        conn.prepareStatement(discussionSql);
+
+                ResultSet discussionRs =
+                        discussionStmt.executeQuery();
+
+                output.append("\nFLAGGED DISCUSSIONS:\n\n");
+
+                while(discussionRs.next()){
+                    output.append("User: ")
+                          .append(discussionRs.getString("username"))
+                          .append("\nTitle: ")
+                          .append(discussionRs.getString("title"))
+                          .append("\nContent: ")
+                          .append(discussionRs.getString("content"))
+                          .append("\n-------------------\n");
+                }
+
+                if(output.toString().equals(
+                        "FLAGGED REVIEWS:\n\n\nFLAGGED DISCUSSIONS:\n\n"
+                )){
+                    reportArea.setText(
+                        "No flagged content found."
+                    );
+                } else {
+                    reportArea.setText(output.toString());
+                }
+
+            } catch(Exception ex){
+                ex.printStackTrace();
+            }
         });
 
         VBox box = new VBox(12,
                 sectionLabel("User Activity Report"),
-                usernameField, viewBtn,
-                new Label("Report Output:"), reportArea
+                usernameField,
+                banBtn,
+                unbanBtn,
+                flaggedBtn,
+                new Label("Report Output:"),
+                reportArea
         );
+        
         box.setPadding(new Insets(24));
 
         tab.setContent(box);
@@ -1327,6 +1542,64 @@ public class MainDashboard {
         return tab;
     }
     
+    private Tab buildManageRolesTab() {
+        Tab tab = new Tab("👥 Manage Roles");
+
+        TextField emailField = new TextField();
+        emailField.setPromptText("Enter email");
+
+        ComboBox<String> roleBox = new ComboBox<>();
+        roleBox.getItems().addAll(
+                "LIBRARIAN",
+                "CONTENT_MODERATOR",
+                "ADMIN"
+        );
+
+        roleBox.setValue("LIBRARIAN");
+
+        TextArea outputArea = new TextArea();
+        outputArea.setEditable(false);
+
+        Button sendInviteBtn = new Button("Send Invite");
+        styleButton(sendInviteBtn, "#8e44ad", "#fff");
+
+        sendInviteBtn.setOnAction(e -> {
+            String email = emailField.getText().trim();
+            String role = roleBox.getValue();
+
+            String code = "INV-" + System.currentTimeMillis();
+
+            RoleInviteDAO.createInvite(
+                    email,
+                    role,
+                    code
+            );
+            
+            EmailService.sendRoleInviteEmail(
+                    email,
+                    role,
+                    code
+            );
+
+            outputArea.setText(
+            	    "Invitation email sent successfully."
+            	);
+        });
+
+        VBox box = new VBox(
+                12,
+                emailField,
+                roleBox,
+                sendInviteBtn,
+                outputArea
+        );
+
+        box.setPadding(new Insets(24));
+
+        tab.setContent(box);
+        return tab;
+    }
+    
     private void refreshDiscussionFeed(TextArea feedArea) {
         try (Connection conn = DBConnection.connect()) {
 
@@ -1352,7 +1625,11 @@ public class MainDashboard {
                       .append("\n--------------------\n");
             }
 
-            feedArea.setText(output.toString());
+            if(output.length() == 0){
+                feedArea.setText("No approved discussions yet.");
+            } else {
+                feedArea.setText(output.toString());
+            }
 
         } catch(Exception e){
             e.printStackTrace();
@@ -1388,7 +1665,11 @@ public class MainDashboard {
                       .append("\n-------------------\n");
             }
 
-            displayArea.setText(output.toString());
+            if(output.length() == 0){
+                displayArea.setText("No approved reviews for this book yet.");
+            } else {
+                displayArea.setText(output.toString());
+            }
 
         } catch(Exception e){
             e.printStackTrace();

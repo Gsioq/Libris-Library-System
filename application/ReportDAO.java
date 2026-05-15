@@ -2,8 +2,6 @@ package application;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import database.DBConnection;
-
 
 public class ReportDAO {
 	 public static void viewUserActivity(String username) {

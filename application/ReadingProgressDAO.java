@@ -1,7 +1,6 @@
 package application;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
-import database.DBConnection;
 
 
 public class ReadingProgressDAO {

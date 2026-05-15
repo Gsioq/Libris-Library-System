@@ -1,6 +1,6 @@
 package application;
+
 import java.sql.*;
-import database.DBConnection;
 
 public class DiscussionDAO {
 
@@ -8,9 +8,9 @@ public class DiscussionDAO {
         try(Connection conn = DBConnection.connect()) {
 
             String status =
-                AutoModerator.isAppropriate(d.getContent())
-                ? "APPROVED"
-                : "PENDING";
+                    AutoModerator.isAppropriate(d.getContent())
+                    ? "PENDING"
+                    : "FLAGGED";
 
             PreparedStatement stmt = conn.prepareStatement("""
                 INSERT INTO discussions(username,title,content,status)
@@ -25,8 +25,13 @@ public class DiscussionDAO {
             stmt.executeUpdate();
 
             SystemLogDAO.logAction(
-                d.getUsername(),
-                "Created discussion: " + d.getTitle()
+                    d.getUsername(),
+                    "Created discussion: " + d.getTitle()
+            );
+
+            ModerationNotificationDAO.createNotification(
+                    "DISCUSSION",
+                    "New discussion submitted: " + d.getTitle()
             );
 
         } catch(Exception e){

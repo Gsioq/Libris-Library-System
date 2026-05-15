@@ -1,7 +1,6 @@
 package application;
 
 import java.sql.*;
-import database.DBConnection;
 
 public class AuthService {
 

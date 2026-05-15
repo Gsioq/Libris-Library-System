@@ -1,6 +1,5 @@
 package application;
 import java.sql.*;
-import database.DBConnection;
 
 public class ContentService {
 	private boolean isContentAppropriate(String desc) {
@@ -56,6 +55,7 @@ public class ContentService {
             stmt.setString(3, genre);
             stmt.setString(4, desc);
             stmt.setInt(5, userId);
+            stmt.setString(6, filePath); //testing filepath to see if it fixes things
             
 
             stmt.executeUpdate();

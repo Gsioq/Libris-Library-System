@@ -47,6 +47,10 @@ public class RegisterScreen {
         TextField emailField = new TextField();
         emailField.setPromptText("Email");
         styleField(emailField);
+        
+        TextField inviteCodeField = new TextField();
+        inviteCodeField.setPromptText("Invite Code (Required for Admin Roles)");
+        styleField(inviteCodeField);
 
         //Role Selector, who are you?
         Label roleLabel = new Label("Select Role:");
@@ -80,10 +84,29 @@ public class RegisterScreen {
             String password = passwordField.getText().trim();
             String email    = emailField.getText().trim();
             Role   role     = roleBox.getValue();
+            String inviteCode = inviteCodeField.getText().trim();
 
             if (username.isEmpty() || password.isEmpty() || email.isEmpty()){
                 showMessage(messageLabel, "Please fill in all fields.", false);
                 return;
+            }
+            
+            if(role != Role.READER){
+
+                boolean validInvite = RoleInviteDAO.validateInvite(
+                        email,
+                        role.toString(),
+                        inviteCode
+                );
+
+                if(!validInvite){
+                    showMessage(
+                            messageLabel,
+                            "You need a valid admin invitation code for this role.",
+                            false
+                    );
+                    return;
+                }
             }
 
          // generate 6-digit OTP
@@ -175,12 +198,14 @@ public class RegisterScreen {
                 usernameField,
                 passwordField,
                 emailField,
+                inviteCodeField,   
                 roleLabel,
                 roleBox,
                 registerBtn,
                 messageLabel,
                 backLink
         );
+        
         form.setAlignment(Pos.CENTER_LEFT);
         form.setPadding(new Insets(36));
         form.setMaxWidth(400);
