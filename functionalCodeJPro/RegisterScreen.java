@@ -1,0 +1,265 @@
+package application;
+
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.scene.text.*;
+import javafx.stage.Stage;
+
+
+// Welcome....Whoever is reading this. I beg you to do the designs. I'm really tired. I did the bare minimum of designs lmao
+//It's okay Blu... we just need to get this done okay??
+public class RegisterScreen {
+
+    private final Stage stage;
+    private final AuthService auth = new AuthService();
+
+    public RegisterScreen(Stage stage) {
+        this.stage = stage;
+    }
+
+    public Scene getScene() {
+
+        //Title
+        Text title = new Text("📚 LIBRIS");
+        title.setFont(Font.font("Georgia", FontWeight.BOLD, 30));
+        title.setFill(Color.web("#2c3e50"));
+
+        Text subtitle = new Text("Create a New Account");
+        subtitle.setFont(Font.font("Georgia", FontPosture.ITALIC, 13));
+        subtitle.setFill(Color.web("#7f8c8d"));
+
+        VBox titleBox = new VBox(4, title, subtitle);
+        titleBox.setAlignment(Pos.CENTER);
+
+        //Fields
+        TextField usernameField = new TextField();
+        usernameField.setPromptText("Username");
+        styleField(usernameField);
+
+        PasswordField passwordField = new PasswordField();
+        passwordField.setPromptText("Password");
+        styleField(passwordField);
+
+        TextField emailField = new TextField();
+        emailField.setPromptText("Email");
+        styleField(emailField);
+        
+        TextField inviteCodeField = new TextField();
+        inviteCodeField.setPromptText("Invite Code (Required for Admin Roles)");
+        styleField(inviteCodeField);
+
+        //Role Selector, who are you?
+        Label roleLabel = new Label("Select Role:");
+        roleLabel.setFont(Font.font("Arial", 12));
+        roleLabel.setTextFill(Color.web("#555"));
+
+        ComboBox<Role> roleBox = new ComboBox<>();
+        roleBox.getItems().addAll(Role.values());
+        roleBox.setValue(Role.READER);
+        roleBox.setMaxWidth(Double.MAX_VALUE);
+        roleBox.setStyle(
+            "-fx-background-radius: 6;" +
+            "-fx-border-color: #bdc3c7;" +
+            "-fx-border-radius: 6;" +
+            "-fx-font-size: 13px;"
+        );
+
+        //message label
+        Label messageLabel = new Label();
+        messageLabel.setWrapText(true);
+        messageLabel.setFont(Font.font("Arial", 12));
+
+        //register button
+        Button registerBtn = new Button("Create Account");
+        registerBtn.setMaxWidth(Double.MAX_VALUE);
+        styleButton(registerBtn, "#27ae60", "#ffffff");
+
+        // register actions
+        registerBtn.setOnAction(e -> {
+            String username = usernameField.getText().trim();
+            String password = passwordField.getText().trim();
+            String email    = emailField.getText().trim();
+            Role   role     = roleBox.getValue();
+            String inviteCode = inviteCodeField.getText().trim();
+
+            if (username.isEmpty() || password.isEmpty() || email.isEmpty()){
+                showMessage(messageLabel, "Please fill in all fields.", false);
+                return;
+            }
+            
+            if(role != Role.READER){
+
+                boolean validInvite = RoleInviteDAO.validateInvite(
+                        email,
+                        role.toString(),
+                        inviteCode
+                );
+
+                if(!validInvite){
+                    showMessage(
+                            messageLabel,
+                            "You need a valid admin invitation code for this role.",
+                            false
+                    );
+                    return;
+                }
+            }
+
+         // generate 6-digit OTP
+            String otp = String.valueOf(
+                    (int)(Math.random() * 900000) + 100000
+            );
+
+            if (!email.matches("^[A-Za-z0-9._%+-]+@gmail\\.com$")) {
+                showMessage(
+                    messageLabel,
+                    "Please enter a valid Gmail address.",
+                    false
+                );
+                return;
+            }
+            // send OTP email
+            boolean sent = EmailService.sendOTP(email, otp);
+
+            if (!sent) {
+                showMessage(messageLabel, "Failed to send OTP email.", false);
+                return;
+            }
+
+            String finalOtp = otp;
+
+            Label otpLabel = new Label("Enter the OTP sent to your email:");
+            TextField otpField = new TextField();
+            otpField.setPromptText("Enter OTP");
+
+            Label otpMessage = new Label();
+
+            Button verifyBtn = new Button("Verify Email");
+            styleButton(verifyBtn, "#27ae60", "#ffffff");
+
+            verifyBtn.setOnAction(ev -> {
+                String enteredOTP = otpField.getText().trim();
+
+                if (enteredOTP.equals(finalOtp)) {
+
+                    String registerResult = auth.register(
+                            username,
+                            password,
+                            email,
+                            role
+                    );
+
+                    boolean success =
+                            registerResult.startsWith("Account created");
+
+                    if (success) {
+                        auth.verify(username);
+
+                        LoginScreen login = new LoginScreen(stage);
+                        stage.setScene(login.getScene());
+
+                    } else {
+                        otpMessage.setText(registerResult);
+                        otpMessage.setTextFill(Color.RED);
+                    }
+
+                } else {
+                    otpMessage.setText("Invalid OTP.");
+                    otpMessage.setTextFill(Color.RED);
+                }
+            });
+
+            VBox otpLayout = new VBox(
+                    15,
+                    otpLabel,
+                    otpField,
+                    verifyBtn,
+                    otpMessage
+            );
+
+            otpLayout.setAlignment(Pos.CENTER);
+            otpLayout.setPadding(new Insets(40));
+
+            Scene otpScene = new Scene(otpLayout, 500, 400);
+
+            stage.setScene(otpScene);
+        });
+
+        // Back to Login Link 
+        Hyperlink backLink = new Hyperlink("Already have an account? Log in");
+        backLink.setFont(Font.font("Arial", 12));
+        backLink.setTextFill(Color.web("#2980b9"));
+        backLink.setBorder(Border.EMPTY);
+
+        // navigation, but backwards 
+        backLink.setOnAction(e -> {
+            LoginScreen login = new LoginScreen(stage);
+            stage.setScene(login.getScene());
+        });
+
+        //Layouts
+        VBox form = new VBox(12,
+                titleBox,
+                new Separator(),
+                usernameField,
+                passwordField,
+                emailField,
+                inviteCodeField,   
+                roleLabel,
+                roleBox,
+                registerBtn,
+                messageLabel,
+                backLink
+        );
+        
+        form.setAlignment(Pos.CENTER_LEFT);
+        form.setPadding(new Insets(36));
+        form.setMaxWidth(400);
+        form.setStyle(
+            "-fx-background-color: white;" +
+            "-fx-background-radius: 12;" +
+            "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 20, 0, 0, 4);"
+        );
+
+        StackPane root = new StackPane(form);
+        root.setStyle("-fx-background-color: #ecf0f1;");
+        root.setPadding(new Insets(50));
+
+        return new Scene(root, 520, 620);
+    }
+
+    // A E S T H E T I C S
+    private void styleField(TextField field) {
+        field.setMaxWidth(Double.MAX_VALUE);
+        field.setStyle(
+            "-fx-background-radius: 6;" +
+            "-fx-border-color: #bdc3c7;" +
+            "-fx-border-radius: 6;" +
+            "-fx-padding: 8 12;" +
+            "-fx-font-size: 13px;"
+        );
+    }
+
+    private void styleButton(Button btn, String bg, String fg) {
+        String base =
+            "-fx-background-color: " + bg + ";" +
+            "-fx-text-fill: " + fg + ";" +
+            "-fx-font-size: 14px;" +
+            "-fx-font-weight: bold;" +
+            "-fx-background-radius: 6;" +
+            "-fx-cursor: hand;" +
+            "-fx-padding: 10 0;";
+        btn.setStyle(base);
+        btn.setOnMouseEntered(e -> btn.setStyle(base.replace(bg, "#1e8449")));
+        btn.setOnMouseExited(e -> btn.setStyle(base));
+    }
+
+    private void showMessage(Label label, String msg, boolean success) {
+        label.setText(msg);
+        label.setTextFill(success ? Color.web("#27ae60") : Color.web("#e74c3c"));
+    }
+}
